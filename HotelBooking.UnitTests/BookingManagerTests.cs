@@ -1,71 +1,125 @@
 using System;
+using System.Collections.Generic;
 using HotelBooking.Core;
-using HotelBooking.UnitTests.Fakes;
 using Xunit;
-using System.Linq;
 using System.Threading.Tasks;
+using Moq;
 
 
 namespace HotelBooking.UnitTests
 {
     public class BookingManagerTests
     {
-        private IBookingManager bookingManager;
-        IRepository<Booking> bookingRepository;
+        private readonly IBookingManager bookingManager;
+        private readonly Mock<IRepository<Booking>> bookingRepositoryMock;
 
-        public BookingManagerTests(){
-            DateTime start = DateTime.Today.AddDays(10);
-            DateTime end = DateTime.Today.AddDays(20);
-            bookingRepository = new FakeBookingRepository(start, end);
-            IRepository<Room> roomRepository = new FakeRoomRepository();
-            bookingManager = new BookingManager(bookingRepository, roomRepository);
+        public BookingManagerTests()
+        {
+            bookingRepositoryMock = new Mock<IRepository<Booking>>();
+            var roomRepositoryMock = new Mock<IRepository<Room>>();
+
+            var rooms = new List<Room>
+            {
+                new Room { Id = 1, Description = "A" },
+                new Room { Id = 2, Description = "B" },
+                new Room { Id = 3, Description = "C" },
+            };
+
+            roomRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(rooms);
+            bookingManager = new BookingManager(bookingRepositoryMock.Object, roomRepositoryMock.Object);
         }
 
-        [Fact]
-        public async Task FindAvailableRoom_StartDateNotInTheFuture_ThrowsArgumentException()
+        #region Test Data Setup
+
+        public static TheoryData<DateTime, DateTime> InvalidDateTestData
+        {
+            get
+            {
+                var data = new TheoryData<DateTime, DateTime>
+                {
+                    { DateTime.Today, DateTime.Today.AddDays(1) },
+                    { DateTime.Today.AddDays(2), DateTime.Today.AddDays(1) }
+                };
+                return data;
+            }
+        }
+
+        public static TheoryData<List<Booking>> UnavailableRoomTestData
+        {
+            get
+            {
+                var data = new TheoryData<List<Booking>>
+                {
+                    new List<Booking>
+                    {
+                        new Booking { Id = 1, RoomId = 1, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(5), IsActive = true },
+                        new Booking { Id = 2, RoomId = 2, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(5), IsActive = true },
+                        new Booking { Id = 3, RoomId = 3, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(5), IsActive = true }
+                    }
+                };
+                return data;
+            }
+        }
+
+        public static TheoryData<List<Booking>, int> AvailableRoomTestData
+        {
+            get
+            {
+                var data = new TheoryData<List<Booking>, int>();
+                data.Add(new List<Booking>(), 1);
+                data.Add(new List<Booking>
+                {
+                    new Booking { Id = 1, RoomId = 1, StartDate = DateTime.Today.AddDays(5), EndDate = DateTime.Today.AddDays(12), IsActive = true },
+                    new Booking { Id = 2, RoomId = 2, StartDate = DateTime.Today.AddDays(13), EndDate = DateTime.Today.AddDays(18), IsActive = true }
+                }, 3);
+                return data;
+            }
+        }
+        
+        #endregion
+
+        #region FindAvailableRoom
+        
+        [Theory]
+        [MemberData(nameof(InvalidDateTestData))]
+        public async Task FindAvailableRoom_InvalidDates_ThrowsArgumentException(DateTime startDate, DateTime endDate)
+        {
+            // Act & Assert
+            await Assert.ThrowsAsync<ArgumentException>(() => bookingManager.FindAvailableRoom(startDate, endDate));
+        }
+
+        [Theory]
+        [MemberData(nameof(AvailableRoomTestData))]
+        public async Task FindAvailableRoom_RoomIsAvailable_ReturnsRoomId(List<Booking> bookings, int expectedRoomId)
         {
             // Arrange
-            DateTime date = DateTime.Today;
+            DateTime startDate = DateTime.Today.AddDays(10);
+            DateTime endDate = DateTime.Today.AddDays(15);
+            bookingRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(bookings);
 
             // Act
-            Task result() => bookingManager.FindAvailableRoom(date, date);
+            int roomId = await bookingManager.FindAvailableRoom(startDate, endDate);
 
             // Assert
-            await Assert.ThrowsAsync<ArgumentException>(result);
+            Assert.Equal(expectedRoomId, roomId);
         }
 
-        [Fact]
-        public async Task FindAvailableRoom_RoomAvailable_RoomIdNotMinusOne()
+        [Theory]
+        [MemberData(nameof(UnavailableRoomTestData))]
+        public async Task FindAvailableRoom_RoomIsUnavailable_ReturnsMinusOne(List<Booking> bookings)
         {
             // Arrange
-            DateTime date = DateTime.Today.AddDays(1);
+            DateTime startDate = DateTime.Today.AddDays(5);
+            DateTime endDate = DateTime.Today.AddDays(6);
+            bookingRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(bookings);
+
             // Act
-            int roomId = await bookingManager.FindAvailableRoom(date, date);
+            int roomId = await bookingManager.FindAvailableRoom(startDate, endDate);
+
             // Assert
-            Assert.NotEqual(-1, roomId);
+            Assert.Equal(-1, roomId);
         }
 
-        [Fact]
-        public async Task FindAvailableRoom_RoomAvailable_ReturnsAvailableRoom()
-        {
-            // This test was added to satisfy the following test design
-            // principle: "Tests should have strong assertions".
-
-            // Arrange
-            DateTime date = DateTime.Today.AddDays(1);
-            
-            // Act
-            int roomId = await bookingManager.FindAvailableRoom(date, date);
-
-            var bookingForReturnedRoomId = (await bookingRepository.GetAllAsync()).
-                Where(b => b.RoomId == roomId
-                           && b.StartDate <= date
-                           && b.EndDate >= date
-                           && b.IsActive);
-            
-            // Assert
-            Assert.Empty(bookingForReturnedRoomId);
-        }
-
+        #endregion
     }
 }
