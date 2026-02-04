@@ -1,71 +1,227 @@
 using System;
+using System.Collections.Generic;
 using HotelBooking.Core;
-using HotelBooking.UnitTests.Fakes;
 using Xunit;
-using System.Linq;
 using System.Threading.Tasks;
+using Moq;
 
 
 namespace HotelBooking.UnitTests
 {
     public class BookingManagerTests
     {
-        private IBookingManager bookingManager;
-        IRepository<Booking> bookingRepository;
+        private readonly IBookingManager bookingManager;
+        private readonly Mock<IRepository<Booking>> bookingRepositoryMock;
+        private readonly Mock<IRepository<Room>> roomRepositoryMock;
 
-        public BookingManagerTests(){
-            DateTime start = DateTime.Today.AddDays(10);
-            DateTime end = DateTime.Today.AddDays(20);
-            bookingRepository = new FakeBookingRepository(start, end);
-            IRepository<Room> roomRepository = new FakeRoomRepository();
-            bookingManager = new BookingManager(bookingRepository, roomRepository);
+        public BookingManagerTests()
+        {
+            bookingRepositoryMock = new Mock<IRepository<Booking>>();
+            roomRepositoryMock = new Mock<IRepository<Room>>();
+            bookingManager = new BookingManager(bookingRepositoryMock.Object, roomRepositoryMock.Object);
         }
 
         [Fact]
-        public async Task FindAvailableRoom_StartDateNotInTheFuture_ThrowsArgumentException()
+        public async Task GetFullyOccupiedDates_InvalidDateRange_ThrowsArgumentException()
         {
             // Arrange
-            DateTime date = DateTime.Today;
+            DateTime startDate = new DateTime(2026, 2, 10);
+            DateTime endDate = new DateTime(2026, 2, 5);
 
-            // Act
-            Task result() => bookingManager.FindAvailableRoom(date, date);
-
-            // Assert
-            await Assert.ThrowsAsync<ArgumentException>(result);
+            // Act & Assert
+            await Assert.ThrowsAsync<ArgumentException>(() => 
+                bookingManager.GetFullyOccupiedDates(startDate, endDate));
         }
 
-        [Fact]
-        public async Task FindAvailableRoom_RoomAvailable_RoomIdNotMinusOne()
+        [Theory]
+        [MemberData(nameof(GetFullyOccupiedDatesTestData))]
+        public async Task GetFullyOccupiedDates_ValidDateRange_ReturnsExpectedDates(
+            List<Room> rooms, List<Booking> bookings, DateTime startDate, DateTime endDate, List<DateTime> expectedDates)
         {
             // Arrange
-            DateTime date = DateTime.Today.AddDays(1);
+            bookingRepositoryMock.Setup(repo => repo.GetAllAsync()).ReturnsAsync(bookings);
+            roomRepositoryMock.Setup(repo => repo.GetAllAsync()).ReturnsAsync(rooms);
+
             // Act
-            int roomId = await bookingManager.FindAvailableRoom(date, date);
+            var result = await bookingManager.GetFullyOccupiedDates(startDate, endDate);
+
             // Assert
-            Assert.NotEqual(-1, roomId);
+            Assert.Equal(expectedDates, result);
         }
 
-        [Fact]
-        public async Task FindAvailableRoom_RoomAvailable_ReturnsAvailableRoom()
+        public static TheoryData<List<Room>, List<Booking>, DateTime, DateTime, List<DateTime>> GetFullyOccupiedDatesTestData()
         {
-            // This test was added to satisfy the following test design
-            // principle: "Tests should have strong assertions".
+            var data = new TheoryData<List<Room>, List<Booking>, DateTime, DateTime, List<DateTime>>();
 
-            // Arrange
-            DateTime date = DateTime.Today.AddDays(1);
-            
-            // Act
-            int roomId = await bookingManager.FindAvailableRoom(date, date);
+            // Scenario 1: No rooms, no bookings
+            data.Add(
+                [],
+                [],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                []
+            );
 
-            var bookingForReturnedRoomId = (await bookingRepository.GetAllAsync()).
-                Where(b => b.RoomId == roomId
-                           && b.StartDate <= date
-                           && b.EndDate >= date
-                           && b.IsActive);
-            
-            // Assert
-            Assert.Empty(bookingForReturnedRoomId);
+            // Scenario 2: Some rooms, no bookings
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                []
+            );
+
+            // Scenario 3: Single day range, no bookings
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" }
+                ],
+                [],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 1),
+                []
+            );
+
+            // Scenario 4: Single day range, fully occupied
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 1), IsActive = true, CustomerId = 1 },
+                    new() { Id = 2, RoomId = 2, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 1), IsActive = true, CustomerId = 2 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 1),
+                [new DateTime(2026, 2, 1)]
+            );
+
+            // Scenario 5: Single day range, partially occupied
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 1), IsActive = true, CustomerId = 1 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 1),
+                []
+            );
+
+            // Scenario 6: Multi-day range, no bookings
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" }
+                ],
+                [],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                []
+            );
+
+            // Scenario 7: Multi-day range, some days fully occupied, some not
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 2), IsActive = true, CustomerId = 1 },
+                    new() { Id = 2, RoomId = 2, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 2), IsActive = true, CustomerId = 2 },
+                    new() { Id = 3, RoomId = 1, StartDate = new DateTime(2026, 2, 4), EndDate = new DateTime(2026, 2, 5), IsActive = true, CustomerId = 3 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                [
+                    new(2026, 2, 1), 
+                    new(2026, 2, 2)
+                ]
+            );
+
+            // Scenario 8: Multi-day range, all days fully occupied
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 5), IsActive = true, CustomerId = 1 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                [
+                    new(2026, 2, 1),
+                    new(2026, 2, 2),
+                    new(2026, 2, 3),
+                    new(2026, 2, 4),
+                    new(2026, 2, 5)
+                ]
+            );
+
+            // Scenario 9: Booking starts before range, ends during range
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 1, 28), EndDate = new DateTime(2026, 2, 3), IsActive = true, CustomerId = 1 },
+                    new() { Id = 2, RoomId = 2, StartDate = new DateTime(2026, 1, 28), EndDate = new DateTime(2026, 2, 3), IsActive = true, CustomerId = 2 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                [
+                    new(2026, 2, 1), 
+                    new(2026, 2, 2), 
+                    new(2026, 2, 3)
+                ]
+            );
+
+            // Scenario 10: Booking starts during range, ends after range
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 3), EndDate = new DateTime(2026, 2, 10), IsActive = true, CustomerId = 1 },
+                    new() { Id = 2, RoomId = 2, StartDate = new DateTime(2026, 2, 3), EndDate = new DateTime(2026, 2, 10), IsActive = true, CustomerId = 2 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                [
+                    new(2026, 2, 3), 
+                    new(2026, 2, 4), 
+                    new(2026, 2, 5)
+                ]
+            );
+
+            // Scenario 11: Mix of active and inactive bookings
+            data.Add(
+                [
+                    new() { Id = 1, Description = "Room 1" },
+                    new() { Id = 2, Description = "Room 2" }
+                ],
+                [
+                    new() { Id = 1, RoomId = 1, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 5), IsActive = true, CustomerId = 1 },
+                    new() { Id = 2, RoomId = 2, StartDate = new DateTime(2026, 2, 1), EndDate = new DateTime(2026, 2, 5), IsActive = false, CustomerId = 2 },
+                    new() { Id = 3, RoomId = 2, StartDate = new DateTime(2026, 2, 3), EndDate = new DateTime(2026, 2, 5), IsActive = true, CustomerId = 3 }
+                ],
+                new DateTime(2026, 2, 1),
+                new DateTime(2026, 2, 5),
+                [
+                    new(2026, 2, 3), 
+                    new(2026, 2, 4), 
+                    new(2026, 2, 5)
+                ]
+            );
+
+            return data;
         }
-
     }
 }
