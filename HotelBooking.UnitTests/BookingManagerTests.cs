@@ -84,9 +84,6 @@ namespace HotelBooking.UnitTests
         [MemberData(nameof(InvalidDateTestData))]
         public async Task FindAvailableRoom_InvalidDates_ThrowsArgumentException(DateTime startDate, DateTime endDate)
         {
-            // Arrange
-            bookingRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(new List<Booking>());
-
             // Act & Assert
             await Assert.ThrowsAsync<ArgumentException>(() => bookingManager.FindAvailableRoom(startDate, endDate));
         }
