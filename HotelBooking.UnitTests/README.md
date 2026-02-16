@@ -10,9 +10,6 @@ Tests for this method can be run with:
 ```sh
 dotnet test HotelBooking.UnitTests/HotelBooking.UnitTests.csproj --filter "GetFullyOccupiedDatesTests
 ```
-#### **Use of Mocking**: 
-  - We will mock the bookingRepository and roomRepository. 
-  - This will allow us to isolate the MUT, and simulate various booking scenarios.
 
 #### **Observable Behavior**:
 
@@ -41,4 +38,23 @@ The list of scenarios we want to cover are these (not exhaustive, but it's enoug
 - Booking starts before range, ends during range: correct occupied dates within range
 - Booking starts during range, ends after range → correct occupied dates within range
 - Mix of active and inactive bookings: only active bookings should be counted
+
+### Method Under Test: CreateBooking
+Tests for this method can be run with:
+
+```sh
+dotnet test HotelBooking.UnitTests/HotelBooking.UnitTests.csproj --filter "CreateBooking"
+```
+
+#### **Observable Behavior**:
+
+As a caller of the method, we see two observable behaviors:
+- The happy path: a room is available, the booking is created, and the method returns `true`.
+- The failure path (no room): all rooms are occupied for the requested dates, and the method returns `false`.
+- The failure path (invalid dates): the method is called with invalid dates (start date in the past or after end date) and throws an `ArgumentException`.
+
+#### **Test Cases**:
+- Room available, no existing bookings: should return `true`
+- All rooms occupied for the period: should return `false`
+- Invalid dates (start date today or start date after end date): should throw `ArgumentException`
 
