@@ -331,5 +331,69 @@ namespace HotelBooking.UnitTests
         
 
         #endregion
+
+        #region CreateBooking
+
+        [Fact]
+        public async Task CreateBooking_RoomAvailable_ReturnsTrue()
+        {
+            // Arrange
+            bookingRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(new List<Booking>());
+            var booking = new Booking
+            {
+                StartDate = DateTime.Today.AddDays(10),
+                EndDate = DateTime.Today.AddDays(15),
+                CustomerId = 1
+            };
+
+            // Act
+            bool result = await bookingManager.CreateBooking(booking);
+
+            // Assert
+            Assert.True(result);
+        }
+
+        [Fact]
+        public async Task CreateBooking_NoRoomAvailable_ReturnsFalse()
+        {
+            // Arrange
+            var bookings = new List<Booking>
+            {
+                new Booking { Id = 1, RoomId = 1, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(20), IsActive = true },
+                new Booking { Id = 2, RoomId = 2, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(20), IsActive = true },
+                new Booking { Id = 3, RoomId = 3, StartDate = DateTime.Today.AddDays(1), EndDate = DateTime.Today.AddDays(20), IsActive = true }
+            };
+            bookingRepositoryMock.Setup(x => x.GetAllAsync()).ReturnsAsync(bookings);
+            var booking = new Booking
+            {
+                StartDate = DateTime.Today.AddDays(10),
+                EndDate = DateTime.Today.AddDays(15),
+                CustomerId = 1
+            };
+
+            // Act
+            bool result = await bookingManager.CreateBooking(booking);
+
+            // Assert
+            Assert.False(result);
+        }
+
+        [Theory]
+        [MemberData(nameof(InvalidDateTestData))]
+        public async Task CreateBooking_InvalidDates_ThrowsArgumentException(DateTime startDate, DateTime endDate)
+        {
+            // Arrange
+            var booking = new Booking
+            {
+                StartDate = startDate,
+                EndDate = endDate,
+                CustomerId = 1
+            };
+
+            // Act & Assert
+            await Assert.ThrowsAsync<ArgumentException>(() => bookingManager.CreateBooking(booking));
+        }
+
+        #endregion
     }
 }
